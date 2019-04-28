@@ -12,3 +12,5 @@ Improvements Desired:
 
 NOTE: To avoid compile errors, you must be using 2.4.x stable ESP8266 Board Files in your Arduino IDE.  If you're using v2.5.x,
 you can downgrade and compilation will be error-free.
+
+Video of clock in action: https://youtu.be/YUtqLjs-alo
