@@ -18,13 +18,13 @@ int dx = 0;
 int dy = 0;
 byte del = 0;
 int h, m, s;
-int utcOffset = -4;  // UTC +/- value
+float utcOffset = -4;  // UTC +/- value -- changed to float since some timezones are half hours
 long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
 int summerTime = 0;
 
-const float utcOffsetInSeconds = utcOffset * 3600;  // changed to float since some timezones are half hours
+const int utcOffsetInSeconds = utcOffset * 3600;  
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -45,8 +45,8 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 // =======================================================================
 // CHANGE YOUR CONFIG HERE:
 // =======================================================================
-const char* ssid =     "";          // SSID of local network
-const char* password = "";  // Password on network
+const char* ssid = "MIND CONTROL BG";          // SSID of local network
+const char* password = "N1wilK1wiz";  // Password on network
 
 void setup() {
   Serial.begin(115200);
