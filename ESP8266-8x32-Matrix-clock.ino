@@ -45,8 +45,8 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 // =======================================================================
 // CHANGE YOUR CONFIG HERE:
 // =======================================================================
-const char* ssid = "MIND CONTROL BG";          // SSID of local network
-const char* password = "N1wilK1wiz";  // Password on network
+const char* ssid =     "";          // SSID of local network
+const char* password = "";  // Password on network
 
 void setup() {
   Serial.begin(115200);
