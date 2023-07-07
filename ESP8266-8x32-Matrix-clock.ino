@@ -97,16 +97,16 @@ void loop() {
 
 // =======================================================================
 void setIntensity(int h) {
-  if (h >= 22 || h <= 6) {
+  if ((h >= 22 || h <= 6)) {
     sendCmdAll(CMD_INTENSITY, 0);
   }
-  if (h >= 7 || h <= 10 || h >= 16 || h < 18) {
+  else if ((h >= 7 && h <= 10) || (h >= 16 && h < 18)) {
     sendCmdAll(CMD_INTENSITY, 3);
   }
-  if (h >= 11 || h <= 15) {
+  else if (h >= 11 && h <= 15) {
     sendCmdAll(CMD_INTENSITY, 5);
   }
-  if (h >= 19 || h <= 22) {
+  else if (h >= 19 && h <= 22) {
     sendCmdAll(CMD_INTENSITY, 2);
   }
 }
