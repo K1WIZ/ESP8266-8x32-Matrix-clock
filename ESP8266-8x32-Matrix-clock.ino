@@ -3,6 +3,8 @@
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
+#include <ArduinoJson.h>
+#include <EEPROM.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>  // For NTP Client
 // =============================DEFINE VARS==============================
@@ -19,13 +21,14 @@ int dx = 0;
 int dy = 0;
 byte del = 0;
 int h, m, s;
-float utcOffset = -4;  // UTC +/- value -- changed to float since some timezones are half hours
+float utcOffset;  // UTC - Now set via WiFi Manager!
 long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
 int summerTime = 0;
 String clockHostname = "NTP-Clock";
 const int utcOffsetInSeconds = utcOffset * 3600;  
+WiFiManagerParameter custom_utc_offset("utcoffset", "UTC Offset", String(utcOffset).c_str(), 10);
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -39,10 +42,17 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 #define CLK_PIN 12  // D6
 #include "max7219.h"
 #include "fonts.h"
+#define UTC_OFFSET_ADDRESS 0
 
 void setup() {
   Serial.begin(115200);
+  // Initialize EEPROM
+  EEPROM.begin(sizeof(float));
   WiFiManager wifiManager;
+  wifiManager.setSaveParamsCallback(saveConfigCallback);
+
+  wifiManager.addParameter(&custom_utc_offset);
+
   WiFi.mode(WIFI_STA);
   initMAX7219();
   sendCmdAll(CMD_SHUTDOWN, 1);
@@ -50,7 +60,14 @@ void setup() {
   Serial.print("Connecting WiFi ");
   WiFi.hostname(clockHostname.c_str());
 
-  wifiManager.autoConnect("NTP Clock Setup");
+  if (!wifiManager.autoConnect("NTP Clock Setup")) {
+    Serial.println("Failed to connect and hit timeout");
+    delay(3000);
+    ESP.restart();
+    delay(5000);
+  }
+
+  utcOffset = atof(custom_utc_offset.getValue());
 
   printStringWithShift("Connecting", 15);
   while (WiFi.status() != WL_CONNECTED) {
@@ -58,14 +75,30 @@ void setup() {
     Serial.print(".");
   }
 
+  // Read the utcOffset value from EEPROM
+  EEPROM.get(UTC_OFFSET_ADDRESS, utcOffset);
+
   Serial.println("");
   Serial.print("MyIP: ");
   Serial.println(WiFi.localIP());
+  Serial.print("UTC Offset: ");
+  Serial.println(utcOffset);
   printStringWithShift((String("  MyIP: ") + WiFi.localIP().toString()).c_str(), 15);
   delay(1500);
   // Start NTP Client
   timeClient.begin();
 }
+
+// =======================================================================
+
+void saveConfigCallback() {
+  utcOffset = atof(custom_utc_offset.getValue());
+
+  // Store the utcOffset value in EEPROM
+  EEPROM.put(UTC_OFFSET_ADDRESS, utcOffset);
+  EEPROM.commit();
+}
+
 // =======================================================================
 void loop() {
   if (updCnt <= 0) {  // every 10 scrolls, ~450s=7.5m
@@ -88,6 +121,8 @@ void loop() {
   updateTime(epoch, localMillisAtUpdate);
   setIntensity(h);
   showAnimClock();
+  //Serial.print("UTC Offset: ");
+  //Serial.println(utcOffset);
 }
 
 // =======================================================================
@@ -111,12 +146,14 @@ void setIntensity(int h) {
 void showSimpleClock() {
   dx = dy = 0;
   clr();
+  int adjustedHour = (h + int(utcOffset) + checkSummerTime()) % 24;
+
   if (IS_12H) {
-    showDigit(h / 10 ? h / 10 : 10, 0, dig6x8);  //12H Mode
+    showDigit(adjustedHour / 10 ? adjustedHour / 10 : 10, 0, dig6x8);  // 12H Mode
   } else {
-    showDigit(h / 10, 0, dig6x8);
+    showDigit(adjustedHour / 10, 0, dig6x8);
   }
-  showDigit(h % 10, 8, dig6x8);
+  showDigit(adjustedHour % 10, 8, dig6x8);
   showDigit(m / 10, 17, dig6x8);
   showDigit(m % 10, 25, dig6x8);
   showDigit(s / 10, 34, dig6x8);
@@ -133,23 +170,27 @@ void showAnimClock() {
   int digHt = 12;
   int num = 6;
   int i;
+
   if (del == 0) {
     del = digHt;
     for (i = 0; i < num; i++) digold[i] = dig[i];
 
+    int adjustedHour = (h + int(utcOffset) + checkSummerTime()) % 24;
     if (IS_12H) {
-      dig[0] = h / 10 ? h / 10 : 10;  //12H Mode
+      dig[0] = adjustedHour / 10 ? adjustedHour / 10 : 10;  // 12H Mode
     } else {
-      dig[0] = h / 10;
+      dig[0] = adjustedHour / 10;
     }
-    dig[1] = h % 10;
+    dig[1] = adjustedHour % 10;
     dig[2] = m / 10;
     dig[3] = m % 10;
     dig[4] = s / 10;
     dig[5] = s % 10;
+
     for (i = 0; i < num; i++) digtrans[i] = (dig[i] == digold[i]) ? 0 : digHt;
-  } else
+  } else {
     del--;
+  }
 
   clr();
   for (i = 0; i < num; i++) {
