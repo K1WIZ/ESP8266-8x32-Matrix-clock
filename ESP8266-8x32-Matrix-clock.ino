@@ -40,20 +40,22 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
 #include "max7219.h"
 #include "fonts.h"
-#define HOSTNAME "ESP-Clock"
+String clockHostname = "NTP-Clock";
 
 // =======================================================================
 // CHANGE YOUR CONFIG HERE:
 // =======================================================================
 const char* ssid =     "";          // SSID of local network
-const char* password = "";  // Password on network
+const char* password = "";          // Password on network
 
 void setup() {
   Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
   initMAX7219();
   sendCmdAll(CMD_SHUTDOWN, 1);
-  sendCmdAll(CMD_INTENSITY, 3);
+  sendCmdAll(CMD_INTENSITY, 0);
   Serial.print("Connecting WiFi ");
+  WiFi.hostname(clockHostname.c_str());
 
   WiFi.begin(ssid, password);
 
