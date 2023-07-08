@@ -1,9 +1,10 @@
 #include "Arduino.h"
 #include <ESP8266WiFi.h>  //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>  // For NTP Client
-
-
 // =============================DEFINE VARS==============================
 #define MAX_DIGITS 16
 byte dig[MAX_DIGITS] = { 0 };
@@ -23,13 +24,12 @@ long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
 int summerTime = 0;
-
+String clockHostname = "NTP-Clock";
 const int utcOffsetInSeconds = utcOffset * 3600;  
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
-
 
 #define NUM_MAX 4
 
@@ -37,19 +37,12 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 #define DIN_PIN 15  // D8
 #define CS_PIN 13   // D7
 #define CLK_PIN 12  // D6
-
 #include "max7219.h"
 #include "fonts.h"
-String clockHostname = "NTP-Clock";
-
-// =======================================================================
-// CHANGE YOUR CONFIG HERE:
-// =======================================================================
-const char* ssid =     "";          // SSID of local network
-const char* password = "";          // Password on network
 
 void setup() {
   Serial.begin(115200);
+  WiFiManager wifiManager;
   WiFi.mode(WIFI_STA);
   initMAX7219();
   sendCmdAll(CMD_SHUTDOWN, 1);
@@ -57,7 +50,7 @@ void setup() {
   Serial.print("Connecting WiFi ");
   WiFi.hostname(clockHostname.c_str());
 
-  WiFi.begin(ssid, password);
+  wifiManager.autoConnect("NTP Clock Setup");
 
   printStringWithShift("Connecting", 15);
   while (WiFi.status() != WL_CONNECTED) {
