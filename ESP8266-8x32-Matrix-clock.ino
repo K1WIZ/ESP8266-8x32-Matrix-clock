@@ -1,3 +1,14 @@
+/*
+ * ESP8266 NTP Clock is written by John Rogers.
+ * john@wizworks.net
+ * 
+ * Permission for use is free to all, with the only condition that this notice is intact within
+ * all copies or derivatives of this code.  Improvements are welcome by pull request on the github
+ * master repo.  
+ * 
+ * ESP8266 NTP Clock:  https://github.com/K1WIZ/ESP8266-8x32-Matrix-clock
+ * 
+ */
 #include "Arduino.h"
 #include <ESP8266WiFi.h>  //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
 #include <DNSServer.h>
