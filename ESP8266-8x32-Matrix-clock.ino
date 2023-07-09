@@ -62,9 +62,7 @@ void setup() {
   EEPROM.begin(sizeof(float));
   WiFiManager wifiManager;
   wifiManager.setSaveParamsCallback(saveConfigCallback);
-
   wifiManager.addParameter(&custom_utc_offset);
-
   WiFi.mode(WIFI_STA);
   initMAX7219();
   sendCmdAll(CMD_SHUTDOWN, 1);
@@ -133,6 +131,7 @@ void loop() {
   updateTime(epoch, localMillisAtUpdate);
   setIntensity(h);
   showAnimClock();
+  //showSimpleClock();
 }
 
 // =======================================================================
@@ -153,8 +152,6 @@ void setIntensity(int h) {
 }
 */
 void setIntensity(int h) {
-  adjustedHour = (h + int(utcOffset) + checkSummerTime()) % 24;
-
   if ((adjustedHour >= 22 || adjustedHour <= 6)) {
     sendCmdAll(CMD_INTENSITY, 0);
   }
@@ -167,6 +164,7 @@ void setIntensity(int h) {
   else if (adjustedHour >= 19 && adjustedHour <= 22) {
     sendCmdAll(CMD_INTENSITY, 2);
   }
+  //Serial.println(adjustedHour);
 }
 
 
@@ -304,9 +302,9 @@ long getTime() {
   m = (epoch % 3600) / 60;
   s = epoch % 60;
   summerTime = checkSummerTime();
-  Serial.println(h);
-  Serial.println(m);
-  Serial.println(s);
+  //Serial.println(h);
+  //Serial.println(m);
+  //Serial.println(s);
 
   if (h + utcOffset + summerTime > 23) {
     if (++day > 31) {
@@ -341,6 +339,7 @@ void updateTime(long epoch, long localMillisAtUpdate) {
   h = ((epoch % 86400L) / 3600) % 24;
   m = (epoch % 3600) / 60;
   s = epoch % 60;
+  adjustedHour = h;
 }
 
 // =======================================================================
