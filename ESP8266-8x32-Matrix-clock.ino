@@ -37,6 +37,7 @@ long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
 int summerTime = 0;
+int adjustedHour;
 String clockHostname = "NTP-Clock";
 const int utcOffsetInSeconds = utcOffset * 3600;  
 WiFiManagerParameter custom_utc_offset("utcoffset", "UTC Offset", String(utcOffset).c_str(), 10);
@@ -132,11 +133,10 @@ void loop() {
   updateTime(epoch, localMillisAtUpdate);
   setIntensity(h);
   showAnimClock();
-  //Serial.print("UTC Offset: ");
-  //Serial.println(utcOffset);
 }
 
 // =======================================================================
+/*
 void setIntensity(int h) {
   if ((h >= 22 || h <= 6)) {
     sendCmdAll(CMD_INTENSITY, 0);
@@ -151,20 +151,36 @@ void setIntensity(int h) {
     sendCmdAll(CMD_INTENSITY, 2);
   }
 }
+*/
+void setIntensity(int h) {
+  adjustedHour = (h + int(utcOffset) + checkSummerTime()) % 24;
+
+  if ((adjustedHour >= 22 || adjustedHour <= 6)) {
+    sendCmdAll(CMD_INTENSITY, 0);
+  }
+  else if ((adjustedHour >= 7 && adjustedHour <= 10) || (adjustedHour >= 16 && adjustedHour < 18)) {
+    sendCmdAll(CMD_INTENSITY, 3);
+  }
+  else if (adjustedHour >= 11 && adjustedHour <= 15) {
+    sendCmdAll(CMD_INTENSITY, 5);
+  }
+  else if (adjustedHour >= 19 && adjustedHour <= 22) {
+    sendCmdAll(CMD_INTENSITY, 2);
+  }
+}
+
 
 // =======================================================================
 
 void showSimpleClock() {
   dx = dy = 0;
   clr();
-  int adjustedHour = (h + int(utcOffset) + checkSummerTime()) % 24;
-
   if (IS_12H) {
-    showDigit(adjustedHour / 10 ? adjustedHour / 10 : 10, 0, dig6x8);  // 12H Mode
+    showDigit(h / 10 ? h / 10 : 10, 0, dig6x8);  //12H Mode
   } else {
-    showDigit(adjustedHour / 10, 0, dig6x8);
+    showDigit(h / 10, 0, dig6x8);
   }
-  showDigit(adjustedHour % 10, 8, dig6x8);
+  showDigit(h % 10, 8, dig6x8);
   showDigit(m / 10, 17, dig6x8);
   showDigit(m % 10, 25, dig6x8);
   showDigit(s / 10, 34, dig6x8);
@@ -181,27 +197,23 @@ void showAnimClock() {
   int digHt = 12;
   int num = 6;
   int i;
-
   if (del == 0) {
     del = digHt;
     for (i = 0; i < num; i++) digold[i] = dig[i];
 
-    int adjustedHour = (h + int(utcOffset) + checkSummerTime()) % 24;
     if (IS_12H) {
-      dig[0] = adjustedHour / 10 ? adjustedHour / 10 : 10;  // 12H Mode
+      dig[0] = h / 10 ? h / 10 : 10;  //12H Mode
     } else {
-      dig[0] = adjustedHour / 10;
+      dig[0] = h / 10;
     }
-    dig[1] = adjustedHour % 10;
+    dig[1] = h % 10;
     dig[2] = m / 10;
     dig[3] = m % 10;
     dig[4] = s / 10;
     dig[5] = s % 10;
-
     for (i = 0; i < num; i++) digtrans[i] = (dig[i] == digold[i]) ? 0 : digHt;
-  } else {
+  } else
     del--;
-  }
 
   clr();
   for (i = 0; i < num; i++) {
@@ -288,11 +300,13 @@ long getTime() {
 
   epoch = timeClient.getEpochTime();
   Serial.println(epoch);
-
   h = ((epoch % 86400L) / 3600) % 24;
   m = (epoch % 3600) / 60;
   s = epoch % 60;
   summerTime = checkSummerTime();
+  Serial.println(h);
+  Serial.println(m);
+  Serial.println(s);
 
   if (h + utcOffset + summerTime > 23) {
     if (++day > 31) {
@@ -313,11 +327,20 @@ int checkSummerTime() {
   return 0;
 }
 // =======================================================================
-
+/*
 void updateTime(long epoch, long localMillisAtUpdate) {
   epoch = epoch + ((millis() - localMillisAtUpdate) / 1000);
   h = ((epoch % 86400L) / 3600) % 24;
   m = (epoch % 3600) / 60;
   s = epoch % 60;
 }
+*/
+
+void updateTime(long epoch, long localMillisAtUpdate) {
+  epoch = epoch + (long)(utcOffset * 3600) + ((millis() - localMillisAtUpdate) / 1000);
+  h = ((epoch % 86400L) / 3600) % 24;
+  m = (epoch % 3600) / 60;
+  s = epoch % 60;
+}
+
 // =======================================================================
