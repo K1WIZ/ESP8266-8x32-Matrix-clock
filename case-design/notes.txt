@@ -1,1 +1,3 @@
 DXF Files to make a case for the clock using 1/8" plexiglass.
+
+Credit to Velin Dimitrov for the assistance generating these CAD drawings.  Without your help, this would have been much more difficult.
