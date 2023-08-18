@@ -49,9 +49,9 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 #define NUM_MAX 4
 
 // for NodeMCU 1.0
-#define DIN_PIN 15  // D8
-#define CS_PIN 13   // D7
-#define CLK_PIN 12  // D6
+#define DIN_PIN 13  // D7
+#define CS_PIN 12   // D6
+#define CLK_PIN 14  // D5
 #include "max7219.h"
 #include "fonts.h"
 #define UTC_OFFSET_ADDRESS 0
