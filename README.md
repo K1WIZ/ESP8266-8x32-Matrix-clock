@@ -13,4 +13,4 @@ Improvements Desired:
 4) ~~update code to work properly with ESP8266 Boards version 2.5.x and later~~
 
 Video of clock in action: 
-![https://youtu.be/9C5dRMPiDTk](https://youtu.be/9C5dRMPiDTk)
+![img src="https://www.youtube.com/embed/9C5dRMPiDTk?si=Ofwa2vTcicfkwIQn"](https://youtu.be/9C5dRMPiDTk)
