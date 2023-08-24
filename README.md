@@ -12,4 +12,5 @@ Improvements Desired:
 3) Add configurable option for 12hr time instead of 24hr - via wifimanager invokation
 4) ~~update code to work properly with ESP8266 Boards version 2.5.x and later~~
 
-Video of clock in action: https://youtu.be/YUtqLjs-alo
+Video of clock in action: 
+![](https://youtu.be/9C5dRMPiDTk)
