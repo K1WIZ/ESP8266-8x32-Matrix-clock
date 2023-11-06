@@ -283,29 +283,10 @@ long getTime() {
   h = ((epoch % 86400L) / 3600) % 24;
   m = (epoch % 3600) / 60;
   s = epoch % 60;
-  summerTime = checkSummerTime();
-  //Serial.println(h);
-  //Serial.println(m);
-  //Serial.println(s);
-
-  if (h + utcOffset + summerTime > 23) {
-    if (++day > 31) {
-      day = 1;
-      month++;
-    };  // needs better patch
-    if (++dayOfWeek > 7) dayOfWeek = 1;
-  }
   localMillisAtUpdate = millis();
   return epoch, localMillisAtUpdate;
 }
-// =======================================================================
 
-int checkSummerTime() {
-  if (month > 3 && month < 10) return 1;
-  if (month == 3 && day >= 31 - (((5 * year / 4) + 4) % 7)) return 1;
-  if (month == 10 && day < 31 - (((5 * year / 4) + 1) % 7)) return 1;
-  return 0;
-}
 // =======================================================================
 
 // Function to check if the current time is within daylight saving time
