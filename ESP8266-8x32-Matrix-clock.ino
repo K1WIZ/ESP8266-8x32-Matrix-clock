@@ -135,22 +135,6 @@ void loop() {
 }
 
 // =======================================================================
-/*
-void setIntensity(int h) {
-  if ((h >= 22 || h <= 6)) {
-    sendCmdAll(CMD_INTENSITY, 0);
-  }
-  else if ((h >= 7 && h <= 10) || (h >= 16 && h < 18)) {
-    sendCmdAll(CMD_INTENSITY, 3);
-  }
-  else if (h >= 11 && h <= 15) {
-    sendCmdAll(CMD_INTENSITY, 5);
-  }
-  else if (h >= 19 && h <= 22) {
-    sendCmdAll(CMD_INTENSITY, 2);
-  }
-}
-*/
 void setIntensity(int h) {
   if ((adjustedHour >= 22 || adjustedHour <= 6)) {
     sendCmdAll(CMD_INTENSITY, 0);
@@ -164,9 +148,7 @@ void setIntensity(int h) {
   else if (adjustedHour >= 19 && adjustedHour <= 22) {
     sendCmdAll(CMD_INTENSITY, 2);
   }
-  //Serial.println(adjustedHour);
 }
-
 
 // =======================================================================
 
@@ -325,17 +307,27 @@ int checkSummerTime() {
   return 0;
 }
 // =======================================================================
-/*
-void updateTime(long epoch, long localMillisAtUpdate) {
-  epoch = epoch + ((millis() - localMillisAtUpdate) / 1000);
-  h = ((epoch % 86400L) / 3600) % 24;
-  m = (epoch % 3600) / 60;
-  s = epoch % 60;
+
+// Function to check if the current time is within daylight saving time
+bool isDST(int day, int month, int year) {
+  if (month > 3 && month < 10) {
+    // DST is in effect between the second Sunday in March and the first Sunday in November
+    if (month == 3 && day >= 8 - ((5 * year / 4 + 1) % 7)) return true;
+    if (month == 11 && day <= 1 - ((5 * year / 4 + 1) % 7)) return true;
+    if (month > 3 && month < 11) return true;
+  }
+  return false;
 }
-*/
 
 void updateTime(long epoch, long localMillisAtUpdate) {
-  epoch = epoch + (long)(utcOffset * 3600) + ((millis() - localMillisAtUpdate) / 1000);
+  epoch = epoch + (long)(utcOffset * 3600);
+
+  // Adjust the utcOffset if DST is in effect
+  if (isDST(day, month, year)) {
+    epoch -= 3600; // Subtract 1 hour if DST is in effect
+  }
+
+  epoch += ((millis() - localMillisAtUpdate) / 1000);
   h = ((epoch % 86400L) / 3600) % 24;
   m = (epoch % 3600) / 60;
   s = epoch % 60;
