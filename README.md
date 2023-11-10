@@ -9,7 +9,7 @@ Improvements Desired:
 
 1) ~~Use NTP to acquire time~~  DONE!
 2) ~~Use WiFiManager to setup wifi and some user variables (ie. time offset float)~~  DONE!
-3) Add configurable option for 12hr time instead of 24hr - via wifimanager invokation
+3) ~~Add configurable option for 12hr time instead of 24hr - via wifimanager invokation~~  DONE!
 4) ~~update code to work properly with ESP8266 Boards version 2.5.x and later~~
 
 Video of clock in action: https://youtu.be/9C5dRMPiDTk
