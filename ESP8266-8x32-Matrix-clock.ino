@@ -23,7 +23,8 @@
 byte dig[MAX_DIGITS] = { 0 };
 byte digold[MAX_DIGITS] = { 0 };
 byte digtrans[MAX_DIGITS] = { 0 };
-#define IS_12H false
+bool is12HFormat = true;
+bool isPM = false;
 int updCnt = 0;
 int dots = 0;
 long dotTime = 0;
@@ -36,11 +37,13 @@ float utcOffset;  // UTC - Now set via WiFi Manager!
 long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
-int summerTime = 0;
+//int summerTime = 0;
 int adjustedHour;
 String clockHostname = "NTP-Clock";
 const int utcOffsetInSeconds = utcOffset * 3600;  
 WiFiManagerParameter custom_utc_offset("utcoffset", "UTC Offset", String(utcOffset).c_str(), 10);
+WiFiManagerParameter custom_is_12h("is12h", "12 Hour Format", "true", 6);
+WiFiManager wifiManager;
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -60,9 +63,10 @@ void setup() {
   Serial.begin(115200);
   // Initialize EEPROM
   EEPROM.begin(sizeof(float));
-  WiFiManager wifiManager;
+  //WiFiManager wifiManager;
   wifiManager.setSaveParamsCallback(saveConfigCallback);
   wifiManager.addParameter(&custom_utc_offset);
+  wifiManager.addParameter(&custom_is_12h);
   WiFi.mode(WIFI_STA);
   initMAX7219();
   sendCmdAll(CMD_SHUTDOWN, 1);
@@ -103,6 +107,7 @@ void setup() {
 
 void saveConfigCallback() {
   utcOffset = atof(custom_utc_offset.getValue());
+  is12HFormat = String(custom_is_12h.getValue()) != "false";
 
   // Store the utcOffset value in EEPROM
   EEPROM.put(UTC_OFFSET_ADDRESS, utcOffset);
@@ -129,33 +134,40 @@ void loop() {
     dots = !dots;
   }
   updateTime(epoch, localMillisAtUpdate);
-  setIntensity(h);
+  setIntensity();
   showAnimClock();
   //showSimpleClock();
 }
 
 // =======================================================================
-void setIntensity(int h) {
-  if ((adjustedHour >= 22 || adjustedHour <= 6)) {
+void setIntensity() {  // Removed the 'int h' parameter because it's not used
+  // Convert back to 24-hour format for the comparison
+  int intensityHour = is12HFormat && isPM ? adjustedHour + 12 : adjustedHour;
+  if (intensityHour > 12) {  // Correct for the midnight case
+    intensityHour -= 24;
+  }
+
+  if (intensityHour >= 22 || intensityHour <= 6) {
     sendCmdAll(CMD_INTENSITY, 0);
   }
-  else if ((adjustedHour >= 7 && adjustedHour <= 10) || (adjustedHour >= 16 && adjustedHour < 18)) {
+  else if ((intensityHour >= 7 && intensityHour <= 10) || (intensityHour >= 16 && intensityHour < 18)) {
     sendCmdAll(CMD_INTENSITY, 3);
   }
-  else if (adjustedHour >= 11 && adjustedHour <= 15) {
+  else if (intensityHour >= 11 && intensityHour <= 15) {
     sendCmdAll(CMD_INTENSITY, 5);
   }
-  else if (adjustedHour >= 19 && adjustedHour <= 22) {
+  else if (intensityHour >= 19 && intensityHour <= 22) {
     sendCmdAll(CMD_INTENSITY, 2);
   }
 }
+
 
 // =======================================================================
 
 void showSimpleClock() {
   dx = dy = 0;
   clr();
-  if (IS_12H) {
+  if (is12HFormat) {
     showDigit(h / 10 ? h / 10 : 10, 0, dig6x8);  //12H Mode
   } else {
     showDigit(h / 10, 0, dig6x8);
@@ -181,7 +193,7 @@ void showAnimClock() {
     del = digHt;
     for (i = 0; i < num; i++) digold[i] = dig[i];
 
-    if (IS_12H) {
+    if (is12HFormat) {
       dig[0] = h / 10 ? h / 10 : 10;  //12H Mode
     } else {
       dig[0] = h / 10;
@@ -280,10 +292,22 @@ long getTime() {
 
   epoch = timeClient.getEpochTime();
   Serial.println(epoch);
-  h = ((epoch % 86400L) / 3600) % 24;
+  h = ((epoch % 86400L) / 3600) % 24; // Keep this for 24-hour calculations
   m = (epoch % 3600) / 60;
   s = epoch % 60;
   localMillisAtUpdate = millis();
+
+  // Convert to 12-hour format if IS_12H is true
+  isPM = h >= 12;
+  if (is12HFormat) {
+    if (h == 0) { // Midnight case
+      h = 12;
+    } else if (h > 12) { // Afternoon case
+      h -= 12;
+    }
+    // You could also set an AM/PM indicator here
+  }
+
   return epoch, localMillisAtUpdate;
 }
 
@@ -309,10 +333,23 @@ void updateTime(long epoch, long localMillisAtUpdate) {
   }
 
   epoch += ((millis() - localMillisAtUpdate) / 1000);
-  h = ((epoch % 86400L) / 3600) % 24;
+  h = ((epoch % 86400L) / 3600) % 24; // Keep this for 24-hour calculations
   m = (epoch % 3600) / 60;
   s = epoch % 60;
-  adjustedHour = h;
+
+  // Convert to 12-hour format if IS_12H is true
+  isPM = h >= 12;
+  if (is12HFormat) {
+    if (h == 0) { // Midnight case
+      h = 12;
+    } else if (h > 12) { // Afternoon case
+      h -= 12;
+    }
+    // You could also set an AM/PM indicator here
+  }
+
+  adjustedHour = h; // Make sure this is the hour you want to use for display purposes
 }
+
 
 // =======================================================================
