@@ -37,7 +37,6 @@ float utcOffset;  // UTC - Now set via WiFi Manager!
 long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
-//int summerTime = 0;
 int adjustedHour;
 String clockHostname = "NTP-Clock";
 const int utcOffsetInSeconds = utcOffset * 3600;  
@@ -63,7 +62,6 @@ void setup() {
   Serial.begin(115200);
   // Initialize EEPROM
   EEPROM.begin(sizeof(float));
-  //WiFiManager wifiManager;
   wifiManager.setSaveParamsCallback(saveConfigCallback);
   wifiManager.addParameter(&custom_utc_offset);
   wifiManager.addParameter(&custom_is_12h);
@@ -136,7 +134,6 @@ void loop() {
   updateTime(epoch, localMillisAtUpdate);
   setIntensity();
   showAnimClock();
-  //showSimpleClock();
 }
 
 // =======================================================================
@@ -159,27 +156,6 @@ void setIntensity() {  // Removed the 'int h' parameter because it's not used
   else if (intensityHour >= 19 && intensityHour <= 22) {
     sendCmdAll(CMD_INTENSITY, 2);
   }
-}
-
-
-// =======================================================================
-
-void showSimpleClock() {
-  dx = dy = 0;
-  clr();
-  if (is12HFormat) {
-    showDigit(h / 10 ? h / 10 : 10, 0, dig6x8);  //12H Mode
-  } else {
-    showDigit(h / 10, 0, dig6x8);
-  }
-  showDigit(h % 10, 8, dig6x8);
-  showDigit(m / 10, 17, dig6x8);
-  showDigit(m % 10, 25, dig6x8);
-  showDigit(s / 10, 34, dig6x8);
-  showDigit(s % 10, 42, dig6x8);
-  setCol(15, dots ? B00100100 : 0);
-  setCol(32, dots ? B00100100 : 0);
-  refreshAll();
 }
 
 // =======================================================================
@@ -350,6 +326,3 @@ void updateTime(long epoch, long localMillisAtUpdate) {
 
   adjustedHour = h; // Make sure this is the hour you want to use for display purposes
 }
-
-
-// =======================================================================
