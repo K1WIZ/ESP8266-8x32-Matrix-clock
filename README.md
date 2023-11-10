@@ -1,8 +1,6 @@
 # ESP8266-8x32-Matrix-clock
 ESP8266 Internet based clock using 8x32 MAX7219 FC16 Display
 
-*** LOOKING FOR CONTRIBUTORS AND COLLABORATION ON IMPROVEMENTS! ***
-
 *** Improvements Welcome!  Just submit a pull request! ***
 
 Improvements Desired:
