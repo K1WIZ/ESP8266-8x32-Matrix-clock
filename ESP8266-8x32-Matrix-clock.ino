@@ -137,24 +137,31 @@ void loop() {
 }
 
 // =======================================================================
-void setIntensity() {  // Removed the 'int h' parameter because it's not used
-  // Convert back to 24-hour format for the comparison
-  int intensityHour = is12HFormat && isPM ? adjustedHour + 12 : adjustedHour;
-  if (intensityHour > 12) {  // Correct for the midnight case
-    intensityHour -= 24;
+void setIntensity() {
+  int intensityHour;
+
+  if (is12HFormat) {
+    if (isPM) {
+      // For PM, add 12 to the hour, but treat 12 PM as 12
+      intensityHour = (adjustedHour == 12) ? 12 : adjustedHour + 12;
+    } else {
+      // For AM, keep the hour as is, but treat 12 AM as 0
+      intensityHour = (adjustedHour == 12) ? 0 : adjustedHour;
+    }
+  } else {
+    // In 24-hour format, just use the adjustedHour
+    intensityHour = adjustedHour;
   }
 
-  if (intensityHour >= 22 || intensityHour <= 6) {
-    sendCmdAll(CMD_INTENSITY, 0);
-  }
-  else if ((intensityHour >= 7 && intensityHour <= 10) || (intensityHour >= 16 && intensityHour < 18)) {
-    sendCmdAll(CMD_INTENSITY, 3);
-  }
-  else if (intensityHour >= 11 && intensityHour <= 15) {
-    sendCmdAll(CMD_INTENSITY, 5);
-  }
-  else if (intensityHour >= 19 && intensityHour <= 22) {
-    sendCmdAll(CMD_INTENSITY, 2);
+  // Set intensity based on the 24-hour format hour
+  if (intensityHour >= 22 || intensityHour < 6) {
+    sendCmdAll(CMD_INTENSITY, 0);  // Low intensity for night time
+  } else if ((intensityHour >= 7 && intensityHour <= 10) || (intensityHour >= 16 && intensityHour < 18)) {
+    sendCmdAll(CMD_INTENSITY, 3);  // Medium intensity for morning and late afternoon
+  } else if (intensityHour >= 11 && intensityHour <= 15) {
+    sendCmdAll(CMD_INTENSITY, 5);  // High intensity for midday
+  } else if (intensityHour >= 19 && intensityHour <= 22) {
+    sendCmdAll(CMD_INTENSITY, 2);  // Lower intensity for evening
   }
 }
 
