@@ -22,8 +22,9 @@
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <NTPClient.h>
-#include <WiFiUdp.h>  // For NTP Client
-// =============================DEFINE VARS==============================
+#include <WiFiUdp.h>
+#include <time.h> 
+
 #define MAX_DIGITS 16
 byte dig[MAX_DIGITS] = { 0 };
 byte digold[MAX_DIGITS] = { 0 };
@@ -38,20 +39,18 @@ int dx = 0;
 int dy = 0;
 byte del = 0;
 int h, m, s;
-float utcOffset;  // UTC - Now set via WiFi Manager!
+float utcOffset; // UTC - Now set via WiFi Manager!
 long epoch;
 long localMillisAtUpdate;
 int day, month, year, dayOfWeek;
 int adjustedHour;
 String clockHostname = "NTP-Clock";
-const int utcOffsetInSeconds = utcOffset * 3600;  
 WiFiManagerParameter custom_utc_offset("utcoffset", "UTC Offset", String(utcOffset).c_str(), 10);
 WiFiManagerParameter custom_is_12h("is12h", "12 Hour Format", "true", 6);
 WiFiManager wifiManager;
 
-// Define NTP Client to get time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0); // utcOffsetInSeconds will be dynamically adjusted
 
 #define NUM_MAX 4
 
@@ -161,20 +160,9 @@ void loop() {
 
 // =======================================================================
 void setIntensity() {
-  int intensityHour;
+  int intensityHour = h; // Always use the hour in 24-hour format for intensity decisions
 
-  if (is12HFormat) {
-    if (isPM) {
-      // For PM, add 12 to the hour, but treat 12 PM as 12
-      intensityHour = (adjustedHour == 12) ? 12 : adjustedHour + 12;
-    } else {
-      // For AM, keep the hour as is, but treat 12 AM as 0
-      intensityHour = (adjustedHour == 12) ? 0 : adjustedHour;
-    }
-  } else {
-    // In 24-hour format, just use the adjustedHour
-    intensityHour = adjustedHour;
-  }
+  // No need to adjust intensityHour based on is12HFormat
 
   // Set intensity based on the 24-hour format hour
   if (intensityHour >= 22 || intensityHour < 6) {
@@ -199,19 +187,27 @@ void showAnimClock() {
     del = digHt;
     for (i = 0; i < num; i++) digold[i] = dig[i];
 
+    int displayHour = h; // Use a temporary variable for the hour to be displayed
+    
+    // Adjust for 12H format if needed
     if (is12HFormat) {
-      dig[0] = h / 10 ? h / 10 : 10;  //12H Mode
-    } else {
-      dig[0] = h / 10;
+      isPM = displayHour >= 12; // Determine if it's PM for potential AM/PM display
+      displayHour %= 12;
+      displayHour = displayHour ? displayHour : 12; // Converts 0 to 12 for 12-hour format display
     }
-    dig[1] = h % 10;
+
+    // Prepare the digits based on the displayHour
+    dig[0] = displayHour / 10 ? displayHour / 10 : (is12HFormat ? 10 : 0); // Leading 0 for 24H format, blank for 12H
+    dig[1] = displayHour % 10;
     dig[2] = m / 10;
     dig[3] = m % 10;
     dig[4] = s / 10;
     dig[5] = s % 10;
+    
     for (i = 0; i < num; i++) digtrans[i] = (dig[i] == digold[i]) ? 0 : digHt;
-  } else
+  } else {
     del--;
+  }
 
   clr();
   for (i = 0; i < num; i++) {
@@ -227,11 +223,13 @@ void showAnimClock() {
     }
   }
   dy = 0;
+  // Handle the display of dots for seconds or AM/PM indicator
   setCol(15, dots ? B00100100 : 0);
   setCol(32, dots ? B00100100 : 0);
   refreshAll();
   delay(30);
 }
+
 
 // =======================================================================
 
@@ -294,28 +292,33 @@ void printStringWithShift(const char* s, int shiftDelay) {
 // =======================================================================
 
 long getTime() {
-  timeClient.update();
+  timeClient.update(); // Update time with NTP server
 
-  epoch = timeClient.getEpochTime();
+  // Apply the utcOffset to adjust for the local timezone
+  epoch = timeClient.getEpochTime() + (long)(utcOffset * 3600);
+  localMillisAtUpdate = millis(); // Store the current millis() to calculate the drift
+
+  // Convert the adjusted epoch time to tm struct for local time
+  time_t rawTime = epoch;
+  struct tm *ptm = gmtime(&rawTime); // Convert epoch to struct tm as UTC time
+
+  // Update global time variables
+  h = ptm->tm_hour; // 24-hour format
+  m = ptm->tm_min;
+  s = ptm->tm_sec;
+
+  // Update global date variables
+  year = ptm->tm_year + 1900; // Year since 1900
+  month = ptm->tm_mon + 1;    // tm_mon is months since January (0-11)
+  day = ptm->tm_mday;         // Day of the month
+
+  // Log the epoch time for debugging
   Serial.println(epoch);
-  h = ((epoch % 86400L) / 3600) % 24; // Keep this for 24-hour calculations
-  m = (epoch % 3600) / 60;
-  s = epoch % 60;
-  localMillisAtUpdate = millis();
 
-  // Convert to 12-hour format if IS_12H is true
-  isPM = h >= 12;
-  if (is12HFormat) {
-    if (h == 0) { // Midnight case
-      h = 12;
-    } else if (h > 12) { // Afternoon case
-      h -= 12;
-    }
-    // You could also set an AM/PM indicator here
-  }
-
-  return epoch, localMillisAtUpdate;
+  return epoch;
 }
+
+
 
 // =======================================================================
 
@@ -331,28 +334,36 @@ bool isDST(int day, int month, int year) {
 }
 
 void updateTime(long epoch, long localMillisAtUpdate) {
-  epoch = epoch + (long)(utcOffset * 3600);
+  // Assuming utcOffset is correctly set from the WiFi Manager as -4
+  // and considering the need to correctly apply this offset
 
-  // Adjust the utcOffset if DST is in effect
-  if (isDST(day, month, year)) {
-    epoch -= 3600; // Subtract 1 hour if DST is in effect
-  }
+  // Adjust epoch for the UTC offset
+  //epoch += utcOffset * 3600; // This should subtract 4 hours worth of seconds from the epoch
 
-  epoch += ((millis() - localMillisAtUpdate) / 1000);
-  h = ((epoch % 86400L) / 3600) % 24; // Keep this for 24-hour calculations
-  m = (epoch % 3600) / 60;
-  s = epoch % 60;
+  // Adjust for any time passed since the last NTP update to maintain accuracy
+  epoch += (millis() - localMillisAtUpdate) / 1000;
 
-  // Convert to 12-hour format if IS_12H is true
-  isPM = h >= 12;
-  if (is12HFormat) {
-    if (h == 0) { // Midnight case
-      h = 12;
-    } else if (h > 12) { // Afternoon case
-      h -= 12;
-    }
-    // You could also set an AM/PM indicator here
-  }
+  // Convert the adjusted epoch time to a tm structure for easier manipulation
+  time_t adjustedEpoch = static_cast<time_t>(epoch);
+  struct tm *timeinfo = gmtime(&adjustedEpoch); // Use gmtime here to work with the adjusted epoch directly
 
-  adjustedHour = h; // Make sure this is the hour you want to use for display purposes
+  // Update the global time variables based on the adjusted time
+  h = timeinfo->tm_hour; // Should reflect the correct local time considering the utcOffset
+  m = timeinfo->tm_min;
+  s = timeinfo->tm_sec;
+
+  // With is12HFormat = false, no need to convert h to 12-hour format, it should display directly as 24-hour format
+  // Ensure that wherever the time is displayed, it uses h, m, s directly without further conversion
+
+  // Debug print to verify the time after adjustment
+  Serial.print("Adjusted Time: ");
+  Serial.print(h);
+  Serial.print(":");
+  Serial.print(m);
+  Serial.println(" (24-hour format)");
 }
+
+
+
+
+

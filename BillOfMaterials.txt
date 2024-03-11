@@ -1,0 +1,18 @@
+Parts List
+To put this clock together, only a few parts are required. They are:
+
+* Laser cut plexiglas case (drawing design files in the github repo)
+* (4) M2x20mm hex spacers
+* (4) M2x4mm hex spacers
+* (8) M2x6mm hex cap screws
+* (8) M2x4mm hex cap screws
+* 8×32 LED FC16 Max7219 display
+* Some hookup wire
+* 2.1mm DC power jack
+* Wemos D1 Mini ESP8266 WiFi microprocessor
+* Wemos D1 Mini prototype sheild
+* Super glue
+* 6ft USB to 2.1mm barrel cable (for power)
+
+Full kit ready to ship, if you don't want to source all these things yourself:
+https://www.tindie.com/products/wizworks/wifi-time-machine-ntp-clock-kit
