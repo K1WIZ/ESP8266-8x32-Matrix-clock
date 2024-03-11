@@ -14,6 +14,9 @@
   #include <ESP8266WiFi.h>  //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
   #include <ESP8266WebServer.h>
 #endif
+#ifdef ESP32
+  #include <soc/spi_pins.h>
+#endif
 #include <DNSServer.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
@@ -59,9 +62,11 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
   #define CLK_PIN 14  // D5
 #else
 #ifdef ESP32
-  #define DIN_PIN 19  // GPIO19
-  #define CS_PIN   5  // GPIO5
-  #define CLK_PIN 18  // GPIO18
+  // https://lastminuteengineers.com/esp32-pinout-reference/
+  // pins are defined in spi_pins.h
+  #define DIN_PIN SPI2_IOMUX_PIN_NUM_MISO  // ESP32: GPIO12, ESP32-S2: GPIO13
+  #define CS_PIN  SPI2_IOMUX_PIN_NUM_CS    // ESP32: GPIO15, ESP32-S2: GPIO10
+  #define CLK_PIN SPI2_IOMUX_PIN_NUM_CLK   // ESP32: GPIO14, ESP32-S2: GPIO12
 #else
   #error board undefined
 #endif
