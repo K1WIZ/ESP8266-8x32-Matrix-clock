@@ -10,9 +10,14 @@
  * 
  */
 #include "Arduino.h"
-#include <ESP8266WiFi.h>
+#ifdef ESP8266
+  #include <ESP8266WiFi.h>  //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
+  #include <ESP8266WebServer.h>
+#endif
+#ifdef ESP32
+  #include <soc/spi_pins.h>
+#endif
 #include <DNSServer.h>
-#include <ESP8266WebServer.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
@@ -48,12 +53,28 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0); // utcOffsetInSeconds will be dynamically adjusted
 
 #define NUM_MAX 4
-#define DIN_PIN 13
-#define CS_PIN 12
-#define CLK_PIN 14
+
+#ifdef ESP8266
+  // for NodeMCU 1.0
+  #define DIN_PIN 13  // D7
+  #define CS_PIN  12  // D6
+  #define CLK_PIN 14  // D5
+#else
+#ifdef ESP32
+  // https://lastminuteengineers.com/esp32-pinout-reference/
+  // pins are defined in spi_pins.h
+  #define DIN_PIN SPI2_IOMUX_PIN_NUM_MISO  // ESP32: GPIO12, ESP32-S2: GPIO13
+  #define CS_PIN  SPI2_IOMUX_PIN_NUM_CS    // ESP32: GPIO15, ESP32-S2: GPIO10
+  #define CLK_PIN SPI2_IOMUX_PIN_NUM_CLK   // ESP32: GPIO14, ESP32-S2: GPIO12
+#else
+  #error board undefined
+#endif
+#endif
+
 #include "max7219.h"
 #include "fonts.h"
 #define UTC_OFFSET_ADDRESS 0
+#define IS_12_HOUR_FORMAT  1
 
 void setup() {
   Serial.begin(115200);
@@ -86,12 +107,15 @@ void setup() {
 
   // Read the utcOffset value from EEPROM
   EEPROM.get(UTC_OFFSET_ADDRESS, utcOffset);
+  EEPROM.get(IS_12_HOUR_FORMAT, is12HFormat);
 
   Serial.println("");
   Serial.print("MyIP: ");
   Serial.println(WiFi.localIP());
   Serial.print("UTC Offset: ");
   Serial.println(utcOffset);
+  Serial.print("is 12 hour format: ");
+  Serial.println(is12HFormat);
   printStringWithShift((String("  MyIP: ") + WiFi.localIP().toString()).c_str(), 15);
   delay(1500);
   // Start NTP Client
@@ -106,6 +130,7 @@ void saveConfigCallback() {
 
   // Store the utcOffset value in EEPROM
   EEPROM.put(UTC_OFFSET_ADDRESS, utcOffset);
+  EEPROM.put(IS_12_HOUR_FORMAT, is12HFormat);
   EEPROM.commit();
 }
 
