@@ -14,11 +14,13 @@
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
-#include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <time.h>
+#include <math.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 /* ================== MAX7219 PIN DEFINES (MUST BE BEFORE max7219.h) ================== */
 #define NUM_MAX 4
@@ -37,7 +39,6 @@ byte digtrans[MAX_DIGITS] = {0};
 
 bool is12HFormat = true;
 bool isPM = false;
-bool observeDST = false;
 
 int updCnt = 0;
 int dots = 0;
@@ -48,8 +49,8 @@ int dy = 0;
 byte del = 0;
 
 int h, m, s;
-long epochUTC = 0;              // Always store UTC epoch here
-long localMillisAtUpdate = 0;
+time_t epochUTC = 0;              // Always store UTC epoch here
+uint32_t localMillisAtUpdate = 0;
 
 int day, month, year, dayOfWeek;
 
@@ -62,8 +63,8 @@ static const uint8_t CLOCK_DSTMODE_NONE = 0;
 static const uint8_t CLOCK_DSTMODE_EU   = 1;
 static const uint8_t CLOCK_DSTMODE_US   = 2;
 
-// DEFAULT MUST BE US PER USER REQUEST:
-uint8_t dstMode = CLOCK_DSTMODE_US;
+// A single mode controls DST. NONE is the initial effective setting.
+uint8_t dstMode = CLOCK_DSTMODE_NONE;
 
 /* Track whether portal actually saved settings (prevents overwriting EEPROM on reboot) */
 volatile bool configWasSaved = false;
@@ -78,7 +79,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", 0); // offset always 0 because we k
 /* ================== EEPROM LAYOUT ================== */
 struct Settings {
   float utcOffset;
-  bool  observeDST;
+  bool  observeDST; // Legacy layout: mirrored from dstMode when saving.
   bool  is12H;
   uint8_t dstMode;
   float dstExtraHours;
@@ -92,28 +93,54 @@ Settings settings;
 
 /* ================== WiFiManager Parameters ================== */
 char bufUtc[12]      = "0";
-char bufDst[6]       = "false";
 char buf12h[6]       = "true";
-char bufDstMode[10]  = "AUTO_US";  // DEFAULT MUST BE US
+char bufDstMode[10]  = "NONE";
 char bufDstExtra[12] = "1.0";
 
-WiFiManagerParameter pUtc("utcoffset", "UTC Offset (hours, e.g. -5, +1, +5.5)", bufUtc, sizeof(bufUtc));
-WiFiManagerParameter pDst("observedst", "Observe DST? (true/false)", bufDst, sizeof(bufDst));
+// UTC offset must be STANDARD time: New York=-5, London=0, Berlin=+1.
+WiFiManagerParameter pUtc("utcoffset", "Standard UTC offset (hours; excludes DST)", bufUtc, sizeof(bufUtc));
 WiFiManagerParameter p12h("is12h", "12 Hour Format? (true/false)", buf12h, sizeof(buf12h));
-WiFiManagerParameter pDstMode("dstmode", "DST Mode: AUTO_US / AUTO_EU / NONE", bufDstMode, sizeof(bufDstMode));
-WiFiManagerParameter pDstExtra("dstextra", "DST Extra Hours (usually 1.0)", bufDstExtra, sizeof(bufDstExtra));
+WiFiManagerParameter pDstMode("dstmode", "Daylight saving: AUTO_US / AUTO_EU / NONE", bufDstMode, sizeof(bufDstMode));
+WiFiManagerParameter pDstExtra("dstextra", "DST Extra Hours (US/Europe: leave at 1.0)", bufDstExtra, sizeof(bufDstExtra));
+
+// Enhance the ordinary parameter into a select with the SAME name and id.
+// WiFiManager therefore receives it through its normal parameter save path.
+// Without JavaScript, the labeled text field remains usable.
+const char dstSelectHtml[] = R"HTML(
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var input = document.getElementById('dstmode');
+  if (!input || input.tagName === 'SELECT') return;
+  var select = document.createElement('select');
+  select.id = input.id;
+  select.name = input.name;
+  [['AUTO_US', 'United States'], ['AUTO_EU', 'Europe'], ['NONE', 'None']].forEach(function (item) {
+    var option = document.createElement('option');
+    option.value = item[0]; option.textContent = item[1];
+    select.appendChild(option);
+  });
+  select.value = input.value;
+  input.parentNode.replaceChild(select, input);
+});
+</script>
+<p>Use your standard (winter) UTC offset. US and Europe normally add one hour.
+Choose None for locations that do not change clocks.</p>
+)HTML";
+WiFiManagerParameter pDstSelect(dstSelectHtml);
 
 /* ================== FORWARD DECLS ================== */
 void saveConfigCallback();
 void loadSettings();
 void applySettingsToRuntime();
-void writeSettingsFromRuntime();
+bool writeSettingsFromRuntime();
+void refreshPortalValues();
 
-long getTimeUTC();
-void updateTime(long epochUTC, long localMillisAtUpdate);
+time_t getTimeUTC();
+void updateTime(time_t epochUTC, uint32_t localMillisAtUpdate);
 
 bool isDST_EU_UTC(time_t utcNow);
 bool isDST_US_Local(time_t utcNow, float baseUtcOffsetHours);
+long dstSecondsAt(time_t utcNow);
 
 void setIntensity();
 void showAnimClock();
@@ -166,70 +193,104 @@ static int secondSundayOfMonth(int y, int m) {
 void loadSettings() {
   EEPROM.get(EEPROM_ADDR, settings);
 
-  if (settings.magic != SETTINGS_MAGIC ||
-      isnan(settings.utcOffset) ||
-      settings.dstExtraHours < 0.0 || settings.dstExtraHours > 3.0 ||
-      settings.dstMode > 2) {
-
-    // Defaults (US mode default requested)
+  // Keep the original structure and magic so existing EEPROM remains readable.
+  if (settings.magic != SETTINGS_MAGIC) {
+    settings = {};
     settings.utcOffset = 0.0;
     settings.observeDST = false;
     settings.is12H = true;
-    settings.dstMode = CLOCK_DSTMODE_US;
+    settings.dstMode = CLOCK_DSTMODE_NONE;
     settings.dstExtraHours = 1.0;
     settings.magic = SETTINGS_MAGIC;
-
-    EEPROM.put(EEPROM_ADDR, settings);
-    EEPROM.commit();
+    // Defaults stay in RAM until the user saves; ordinary boots never write.
   }
-
-  // Pre-fill portal buffers from settings
-  dtostrf(settings.utcOffset, 0, 2, bufUtc);
-  strcpy(bufDst, settings.observeDST ? "true" : "false");
-  strcpy(buf12h, settings.is12H ? "true" : "false");
-  strcpy(bufDstMode,
-         settings.dstMode == CLOCK_DSTMODE_US ? "AUTO_US" :
-         (settings.dstMode == CLOCK_DSTMODE_EU ? "AUTO_EU" : "NONE"));
-  dtostrf(settings.dstExtraHours, 0, 1, bufDstExtra);
+  // Repair only invalid fields, preserving all other stored preferences.
+  if (!isfinite(settings.utcOffset) || settings.utcOffset < -12.0 || settings.utcOffset > 14.0)
+    settings.utcOffset = 0.0;
+  if (!isfinite(settings.dstExtraHours) || settings.dstExtraHours < 0.0 || settings.dstExtraHours > 3.0)
+    settings.dstExtraHours = 1.0;
+  if (settings.dstMode > CLOCK_DSTMODE_US) settings.dstMode = CLOCK_DSTMODE_NONE;
 }
 
 void applySettingsToRuntime() {
   utcOffset = settings.utcOffset;
-  observeDST = settings.observeDST;
   is12HFormat = settings.is12H;
-  dstMode = settings.dstMode;
+  // Preserve the EFFECTIVE selection from old firmware: disabled means NONE.
+  dstMode = settings.observeDST ? settings.dstMode : CLOCK_DSTMODE_NONE;
   dstExtraHours = settings.dstExtraHours;
 }
 
-void writeSettingsFromRuntime() {
-  settings.utcOffset = utcOffset;
-  settings.observeDST = observeDST;
-  settings.is12H = is12HFormat;
-  settings.dstMode = dstMode;
-  settings.dstExtraHours = dstExtraHours;
-  settings.magic = SETTINGS_MAGIC;
+void refreshPortalValues() {
+  dtostrf(utcOffset, 0, 4, bufUtc);
+  strcpy(buf12h, is12HFormat ? "true" : "false");
+  strcpy(bufDstMode, dstMode == CLOCK_DSTMODE_US ? "AUTO_US" :
+         (dstMode == CLOCK_DSTMODE_EU ? "AUTO_EU" : "NONE"));
+  dtostrf(dstExtraHours, 0, 4, bufDstExtra);
+  // WiFiManager copies constructor buffers; changing those buffers is not enough.
+  pUtc.setValue(bufUtc, sizeof(bufUtc));
+  p12h.setValue(buf12h, sizeof(buf12h));
+  pDstMode.setValue(bufDstMode, sizeof(bufDstMode));
+  pDstExtra.setValue(bufDstExtra, sizeof(bufDstExtra));
+}
 
-  EEPROM.put(EEPROM_ADDR, settings);
-  EEPROM.commit();
+bool writeSettingsFromRuntime() {
+  Settings next = settings;
+  next.utcOffset = utcOffset;
+  next.observeDST = dstMode != CLOCK_DSTMODE_NONE;
+  next.is12H = is12HFormat;
+  next.dstMode = dstMode;
+  next.dstExtraHours = dstExtraHours;
+  next.magic = SETTINGS_MAGIC;
+
+  // ESP8266 EEPROM commits flash only when the stored bytes change.
+  EEPROM.put(EEPROM_ADDR, next);
+  if (!EEPROM.commit()) {
+    EEPROM.put(EEPROM_ADDR, settings); // Restore the RAM buffer after a failure.
+    Serial.println("ERROR: EEPROM save failed; retaining previous settings.");
+    return false;
+  }
+  settings = next;
+  return true;
+}
+
+static bool parseHours(const char* value, float minimum, float maximum, float& result) {
+  char* end;
+  float parsed = strtof(value, &end);
+  if (end == value) return false;
+  while (isspace(static_cast<unsigned char>(*end))) ++end;
+  if (*end != '\0' || !isfinite(parsed) || parsed < minimum || parsed > maximum) return false;
+  result = parsed;
+  return true;
 }
 
 /* ================== WIFI MANAGER SAVE ================== */
 void saveConfigCallback() {
-  // IMPORTANT: only set this flag when portal actually saves
-  configWasSaved = true;
+  float newUtc, newExtra;
+  String mode(pDstMode.getValue());
+  mode.trim(); mode.toUpperCase();
+  String format(p12h.getValue());
+  format.trim(); format.toLowerCase();
+  if (!parseHours(pUtc.getValue(), -12.0, 14.0, newUtc) ||
+      !parseHours(pDstExtra.getValue(), 0.0, 3.0, newExtra) ||
+      (mode != "AUTO_US" && mode != "AUTO_EU" && mode != "NONE") ||
+      (format != "true" && format != "false")) {
+    Serial.println("Invalid clock settings: nothing saved. Check UTC offset, DST mode, extra hours and true/false.");
+    refreshPortalValues();
+    return;
+  }
 
-  utcOffset   = atof(pUtc.getValue());
-  observeDST  = String(pDst.getValue()) == "true";
-  is12HFormat = String(p12h.getValue()) == "true";
-  dstExtraHours = atof(pDstExtra.getValue());
-
-  String mode = String(pDstMode.getValue());
-  mode.toUpperCase();
-  if (mode == "AUTO_US") dstMode = CLOCK_DSTMODE_US;
-  else if (mode == "AUTO_EU") dstMode = CLOCK_DSTMODE_EU;
-  else dstMode = CLOCK_DSTMODE_NONE;
-
-  writeSettingsFromRuntime();
+  utcOffset = newUtc;
+  dstExtraHours = newExtra;
+  is12HFormat = format == "true";
+  dstMode = mode == "AUTO_US" ? CLOCK_DSTMODE_US :
+            (mode == "AUTO_EU" ? CLOCK_DSTMODE_EU : CLOCK_DSTMODE_NONE);
+  if (writeSettingsFromRuntime()) {
+    configWasSaved = true;
+    Serial.println("Clock settings saved to EEPROM.");
+  } else {
+    applySettingsToRuntime();
+  }
+  refreshPortalValues();
 }
 
 /* ================== SETUP ================== */
@@ -240,13 +301,14 @@ void setup() {
   // Load EEPROM first, and apply to runtime so a reboot keeps settings
   loadSettings();
   applySettingsToRuntime();
+  refreshPortalValues();
 
   wifiManager.setSaveParamsCallback(saveConfigCallback);
   wifiManager.addParameter(&pUtc);
-  wifiManager.addParameter(&pDst);
   wifiManager.addParameter(&p12h);
   wifiManager.addParameter(&pDstMode);
   wifiManager.addParameter(&pDstExtra);
+  wifiManager.addParameter(&pDstSelect);
 
   WiFi.mode(WIFI_STA);
   WiFi.hostname(clockHostname.c_str());
@@ -281,8 +343,6 @@ void setup() {
   Serial.println(WiFi.localIP());
   Serial.print("UTC Offset: ");
   Serial.println(utcOffset);
-  Serial.print("Observe DST: ");
-  Serial.println(observeDST ? "true" : "false");
   Serial.print("DST Mode: ");
   Serial.println(dstMode == CLOCK_DSTMODE_US ? "AUTO_US" : (dstMode == CLOCK_DSTMODE_EU ? "AUTO_EU" : "NONE"));
   Serial.print("DST Extra Hours: ");
@@ -292,12 +352,23 @@ void setup() {
   printStringWithShift((String("  MyIP: ") + WiFi.localIP().toString()).c_str(), 15);
   delay(1000);
 
+  Serial.println("Send C over Serial at 115200 baud to reopen NTP Clock Setup and change settings.");
   timeClient.begin();
   epochUTC = getTimeUTC();
 }
 
 /* ================== LOOP ================== */
 void loop() {
+  // Reconfigure without erasing WiFi credentials or EEPROM.
+  if (Serial.available()) {
+    char command = Serial.read();
+    if (command == 'C' || command == 'c') {
+      refreshPortalValues();
+      wifiManager.setConfigPortalTimeout(180);
+      wifiManager.startConfigPortal("NTP Clock Setup");
+      epochUTC = getTimeUTC();
+    }
+  }
   if (updCnt <= 0) {
     updCnt = 60;
     Serial.println("Getting data ...");
@@ -323,12 +394,12 @@ void loop() {
 }
 
 /* ================== NTP ================== */
-long getTimeUTC() {
+time_t getTimeUTC() {
   timeClient.update();
   epochUTC = timeClient.getEpochTime();   // UTC only
   localMillisAtUpdate = millis();
   Serial.print("UTC epoch: ");
-  Serial.println(epochUTC);
+  Serial.println(static_cast<unsigned long>(epochUTC));
   return epochUTC;
 }
 
@@ -360,66 +431,45 @@ bool isDST_EU_UTC(time_t utcNow) {
 }
 
 bool isDST_US_Local(time_t utcNow, float baseUtcOffsetHours) {
-  // Convert UTC -> "local standard time" by applying base offset only (no DST)
-  time_t localStd = utcNow + (long)(baseUtcOffsetHours * 3600);
-
+  // March starts at 02:00 STANDARD time. November ends at 02:00 DAYLIGHT
+  // time, which is 01:00 standard for the normal +1-hour adjustment.
+  time_t localStd = utcNow + lroundf(baseUtcOffsetHours * 3600.0f);
   struct tm lt;
   gmtime_r(&localStd, &lt);
-
   int y = lt.tm_year + 1900;
-  int mon = lt.tm_mon + 1;
-  int d = lt.tm_mday;
-  int hr = lt.tm_hour;
 
-  if (mon < 3 || mon > 11) return false;
-  if (mon > 3 && mon < 11) return true;
+  // Obtain Jan 1 from the current standard-time date without mktime/timezone state.
+  time_t jan1 = localStd - static_cast<time_t>(lt.tm_yday) * 86400 -
+                lt.tm_hour * 3600 - lt.tm_min * 60 - lt.tm_sec;
+  int marchDays = 31 + daysInMonth(y, 2);
+  int novemberDays = marchDays;
+  for (int mon = 3; mon < 11; ++mon) novemberDays += daysInMonth(y, mon);
+  time_t start = jan1 + static_cast<time_t>(marchDays + secondSundayOfMonth(y, 3) - 1) * 86400 + 7200;
+  time_t end = jan1 + static_cast<time_t>(novemberDays + firstSundayOfMonth(y, 11) - 1) * 86400 +
+               7200 - lroundf(dstExtraHours * 3600.0f);
+  return localStd >= start && localStd < end;
+}
 
-  if (mon == 3) {
-    int startDay = secondSundayOfMonth(y, 3);
-    if (d > startDay) return true;
-    if (d < startDay) return false;
-    return (hr >= 2); // starts 02:00 local
-  }
-
-  // mon == 11
-  int endDay = firstSundayOfMonth(y, 11);
-  if (d < endDay) return true;
-  if (d > endDay) return false;
-  return (hr < 2); // ends 02:00 local
+long dstSecondsAt(time_t utcNow) {
+  bool active = dstMode == CLOCK_DSTMODE_US ? isDST_US_Local(utcNow, utcOffset) :
+                (dstMode == CLOCK_DSTMODE_EU ? isDST_EU_UTC(utcNow) : false);
+  return active ? lroundf(dstExtraHours * 3600.0f) : 0;
 }
 
 /* ================== APPLY OFFSET + DST + UPDATE GLOBALS ================== */
-void updateTime(long epochUtcAtSync, long millisAtSync) {
-  time_t utcNow = (time_t)(epochUtcAtSync + (millis() - millisAtSync) / 1000);
-
-  // apply base offset
-  time_t local = utcNow + (long)(utcOffset * 3600);
-
-  // apply DST if enabled
-  if (observeDST && dstMode != CLOCK_DSTMODE_NONE) {
-    bool dstNow = false;
-
-    if (dstMode == CLOCK_DSTMODE_EU) {
-      dstNow = isDST_EU_UTC(utcNow);
-    } else if (dstMode == CLOCK_DSTMODE_US) {
-      dstNow = isDST_US_Local(utcNow, utcOffset);
-    }
-
-    if (dstNow) {
-      local += (long)(dstExtraHours * 3600);
-    }
-  }
-
+void updateTime(time_t epochUtcAtSync, uint32_t millisAtSync) {
+  // Unsigned subtraction handles the 32-bit millis rollover between NTP updates.
+  uint32_t elapsed = static_cast<uint32_t>(millis()) - millisAtSync;
+  time_t utcNow = epochUtcAtSync + elapsed / 1000;
+  time_t local = utcNow + lroundf(utcOffset * 3600.0f) + dstSecondsAt(utcNow);
   struct tm t;
   gmtime_r(&local, &t);
-
   h = t.tm_hour;
   m = t.tm_min;
   s = t.tm_sec;
-
-  year  = t.tm_year + 1900;
+  year = t.tm_year + 1900;
   month = t.tm_mon + 1;
-  day   = t.tm_mday;
+  day = t.tm_mday;
   dayOfWeek = t.tm_wday;
 }
 
